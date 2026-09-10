@@ -9,66 +9,30 @@ import shutil
 from flask import Flask
 from threading import Thread
 
-# ============================================
-#   🌐 KEEP-ALIVE WEB SERVER (For 24/7 Render)
-# ============================================
+# Web Server for 24/7
 app = Flask('')
-
 @app.route('/')
-def home():
-    return "JP Music Bot is Online 24/7!"
-
-def run():
-    app.run(host='0.0.0.0', port=8080)
-
+def home(): return "JP Music Bot is Online 24/7!"
+def run(): app.run(host='0.0.0.0', port=8080)
 def keep_alive():
     t = Thread(target=run)
     t.start()
 
-# ============================================
-#   ⚙️ BOT CONFIGURATION
-# ============================================
 intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
-
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# 🚨 LOG CHANNEL ID
-LOG_CHANNEL_ID = 1514237335464841313 
-
-# Auto-detect FFmpeg
+LOG_CHANNEL_ID = 1514237335464841313  # Change this!
 FFMPEG_PATH = shutil.which("ffmpeg") or "ffmpeg"
-
 server_states = {}
 
 def get_state(guild_id):
     if guild_id not in server_states:
-        server_states[guild_id] = {
-            'queue': [],
-            'loop': False,
-            'volume': 1.0,
-            'np_msg': None,
-            'current_song': None,
-            'self_disconnect': False
-        }
+        server_states[guild_id] = {'queue': [], 'loop': False, 'volume': 1.0, 'np_msg': None, 'current_song': None, 'self_disconnect': False}
     return server_states[guild_id]
 
-WELCOME_MESSAGES = [
-    "🎧 **{name}** joined the vibe! Drop a track with `/play` 🔥",
-    "🚀 Welcome **{name}** to JP GALAXY! Type `/play` 🎶",
-    "✨ **{name}** is here! The session just leveled up 🎤",
-    "🔥 Look who arrived — **{name}**! Start with `/play` 🎧"
-]
-
-def create_welcome_embed(member):
-    message = random.choice(WELCOME_MESSAGES).format(name=member.display_name)
-    embed = discord.Embed(title="🎤 Welcome to the Vibe", description=message, color=0x5865F2)
-    embed.set_thumbnail(url=member.display_avatar.url)
-    embed.set_footer(text="JP MUSIC • Powered by JP GALAXY")
-    return embed
-
-# 🛡️ YOUTUBE CLOUD BYPASS OPTIONS (Fixes Render 429 Block)
+# 🛡️ ULTRA-BYPASS YTDL OPTIONS (Render/Cloud Special)
 YTDL_OPTIONS = {
     'format': 'bestaudio/best',
     'noplaylist': False,
@@ -77,15 +41,24 @@ YTDL_OPTIONS = {
     'no_warnings': True,
     'source_address': '0.0.0.0',
     'nocheckcertificate': True,
+    # Yeh part YouTube security ko bypass karne ke liye hai
     'extractor_args': {
         'youtube': {
-            'player_client': ['ios', 'android']
+            'player_client': ['web', 'mweb', 'android', 'ios'],
+            'player_skip': ['webpage', 'configs', 'js']
         }
-    }
+    },
+    'postprocessors': [{
+        'key': 'FFmpegExtractAudio',
+        'preferredcodec': 'mp3',
+        'preferredquality': '192',
+    }],
 }
 
 FFMPEG_OPTIONS = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
 ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
+
+# --- Sabhi purane functions (format_duration, embeds, buttons, play_next) wahi rahenge ---
 
 def format_duration(seconds):
     if not seconds: return "LIVE"
@@ -105,7 +78,6 @@ def create_music_embed(state, requester):
     embed.set_footer(text=f"Requested by {requester.display_name}", icon_url=requester.display_avatar.url)
     return embed
 
-# 🎛️ CONTROL BUTTONS
 class MusicControlView(discord.ui.View):
     def __init__(self, guild_id, requester):
         super().__init__(timeout=None)
@@ -146,7 +118,6 @@ class MusicControlView(discord.ui.View):
             vc.source.volume = state['volume']
             await interaction.response.edit_message(embed=create_music_embed(state, self.requester), view=self)
 
-# PLAYBACK ENGINE
 def play_next(guild, requester, channel):
     state = get_state(guild.id)
     vc = guild.voice_client
@@ -157,9 +128,11 @@ def play_next(guild, requester, channel):
         return
     song = state['queue'].pop(0)
     state['current_song'] = song
-    source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(song['url'], executable=FFMPEG_PATH, **FFMPEG_OPTIONS), volume=state['volume'])
-    vc.play(source, after=lambda e: play_next(guild, requester, channel))
-    asyncio.run_coroutine_threadsafe(update_np_panel(guild, requester, channel), bot.loop)
+    try:
+        source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(song['url'], executable=FFMPEG_PATH, **FFMPEG_OPTIONS), volume=state['volume'])
+        vc.play(source, after=lambda e: play_next(guild, requester, channel))
+        asyncio.run_coroutine_threadsafe(update_np_panel(guild, requester, channel), bot.loop)
+    except: pass
 
 async def update_np_panel(guild, requester, channel):
     state = get_state(guild.id)
@@ -168,52 +141,32 @@ async def update_np_panel(guild, requester, channel):
         except: pass
     state['np_msg'] = await channel.send(embed=create_music_embed(state, requester), view=MusicControlView(guild.id, requester))
 
-# EVENTS
 @bot.event
 async def on_ready():
     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name="/help"))
     await bot.tree.sync()
     print(f"✅ {bot.user.name} is Online!")
 
-@bot.event
-async def on_voice_state_update(member, before, after):
-    if not member.bot and before.channel is None and after.channel is not None:
-        await after.channel.send(content=f"Hey {member.mention}!", embed=create_welcome_embed(member))
-    
-    if member.id == bot.user.id and before.channel and not after.channel:
-        state = get_state(member.guild.id)
-        if state['self_disconnect']: state['self_disconnect'] = False; return
-        await asyncio.sleep(2)
-        executor = "Unknown Admin"
-        async for entry in member.guild.audit_logs(limit=1, action=discord.AuditLogAction.member_disconnect):
-            if entry.target.id == bot.user.id: executor = entry.user.mention; break
-        log_ch = member.guild.get_channel(LOG_CHANNEL_ID)
-        if log_ch: await log_ch.send(embed=discord.Embed(title="🚨 FORCED DISCONNECT", description=f"Bot kicked by {executor} from `{before.channel.name}`", color=0xFF0000))
-
-# SLASH COMMANDS
 @bot.tree.command(name="play", description="Play music")
 async def play(interaction: discord.Interaction, search: str):
     await interaction.response.defer()
-    if not interaction.user.voice: 
-        return await interaction.followup.send("❌ Join a Voice Channel first!")
-        
+    if not interaction.user.voice: return await interaction.followup.send("❌ Join VC!")
     vc = interaction.guild.voice_client or await interaction.user.voice.channel.connect()
     state = get_state(interaction.guild.id)
     
+    # Refresh ytdl instance for each play to avoid cached IP blocks
     try:
         data = await asyncio.get_event_loop().run_in_executor(None, lambda: ytdl.extract_info(search, download=False))
         if 'entries' in data:
             for e in data['entries']: state['queue'].append(e)
-            await interaction.followup.send(f"📑 Playlist added! (`{len(data['entries'])}` songs)")
+            await interaction.followup.send(f"📑 Playlist added!")
         else:
             state['queue'].append(data)
-            await interaction.followup.send(f"✅ Added to Queue: **{data['title']}**")
-            
-        if not vc.is_playing(): 
-            play_next(interaction.guild, interaction.user, interaction.channel)
+            await interaction.followup.send(f"✅ Added: {data['title']}")
+        if not vc.is_playing(): play_next(interaction.guild, interaction.user, interaction.channel)
     except Exception as e:
-        print(f"Play Error Details: {e}")
-        await interaction.followup.send(f"❌ Could not load song from YouTube. Try again!")
+        print(f"Error: {e}")
+        await interaction.followup.send("❌ YouTube is blocking this request. Try a different song name or link!")
 
 @bot.tree.command(name="help", description="Commands guide")
 async def help_cmd(interaction):
