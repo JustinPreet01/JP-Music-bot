@@ -32,7 +32,7 @@ def get_state(guild_id):
         server_states[guild_id] = {'queue': [], 'loop': False, 'volume': 1.0, 'np_msg': None, 'current_song': None, 'self_disconnect': False}
     return server_states[guild_id]
 
-# 🛡️ Updated Bypassing Options
+# 🛡️ COOKIES BYPASS YTDL OPTIONS
 YTDL_OPTIONS = {
     'format': 'bestaudio/best',
     'default_search': 'ytsearch1',
@@ -41,11 +41,10 @@ YTDL_OPTIONS = {
     'no_warnings': True,
     'nocheckcertificate': True,
     'ignoreerrors': True,
-    'source_address': '0.0.0.0',
+    'cookiefile': 'cookies.txt',  # <--- Ye line YouTube ko lagega tum login ho
     'extractor_args': {
         'youtube': {
             'player_client': ['android', 'ios'],
-            'player_skip': ['webpage', 'configs', 'js']
         }
     }
 }
