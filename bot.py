@@ -34,8 +34,8 @@ intents.voice_states = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# 🚨 YAHAN APNA LOG CHANNEL ID DAALO (Discord Channel ID)
-LOG_CHANNEL_ID = 123456789012345678 
+# 🚨 LOG CHANNEL ID
+LOG_CHANNEL_ID = 1514237335464841313 
 
 # Auto-detect FFmpeg
 FFMPEG_PATH = shutil.which("ffmpeg") or "ffmpeg"
@@ -54,7 +54,6 @@ def get_state(guild_id):
         }
     return server_states[guild_id]
 
-# Stylish VC Welcome Messages
 WELCOME_MESSAGES = [
     "🎧 **{name}** joined the vibe! Drop a track with `/play` 🔥",
     "🚀 Welcome **{name}** to JP GALAXY! Type `/play` 🎶",
@@ -69,8 +68,22 @@ def create_welcome_embed(member):
     embed.set_footer(text="JP MUSIC • Powered by JP GALAXY")
     return embed
 
-# yt-dlp Configuration
-YTDL_OPTIONS = {'format': 'bestaudio/best', 'noplaylist': False, 'default_search': 'ytsearch', 'quiet': True}
+# 🛡️ YOUTUBE CLOUD BYPASS OPTIONS (Fixes Render 429 Block)
+YTDL_OPTIONS = {
+    'format': 'bestaudio/best',
+    'noplaylist': False,
+    'default_search': 'ytsearch',
+    'quiet': True,
+    'no_warnings': True,
+    'source_address': '0.0.0.0',
+    'nocheckcertificate': True,
+    'extractor_args': {
+        'youtube': {
+            'player_client': ['ios', 'android']
+        }
+    }
+}
+
 FFMPEG_OPTIONS = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
 ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
 
@@ -167,7 +180,6 @@ async def on_voice_state_update(member, before, after):
     if not member.bot and before.channel is None and after.channel is not None:
         await after.channel.send(content=f"Hey {member.mention}!", embed=create_welcome_embed(member))
     
-    # 🛡️ Audit Log Security
     if member.id == bot.user.id and before.channel and not after.channel:
         state = get_state(member.guild.id)
         if state['self_disconnect']: state['self_disconnect'] = False; return
@@ -182,25 +194,31 @@ async def on_voice_state_update(member, before, after):
 @bot.tree.command(name="play", description="Play music")
 async def play(interaction: discord.Interaction, search: str):
     await interaction.response.defer()
-    if not interaction.user.voice: return await interaction.followup.send("❌ Join VC!")
+    if not interaction.user.voice: 
+        return await interaction.followup.send("❌ Join a Voice Channel first!")
+        
     vc = interaction.guild.voice_client or await interaction.user.voice.channel.connect()
     state = get_state(interaction.guild.id)
+    
     try:
         data = await asyncio.get_event_loop().run_in_executor(None, lambda: ytdl.extract_info(search, download=False))
         if 'entries' in data:
             for e in data['entries']: state['queue'].append(e)
-            await interaction.followup.send(f"📑 Playlist added!")
+            await interaction.followup.send(f"📑 Playlist added! (`{len(data['entries'])}` songs)")
         else:
             state['queue'].append(data)
-            await interaction.followup.send(f"✅ Added: {data['title']}")
-        if not vc.is_playing(): play_next(interaction.guild, interaction.user, interaction.channel)
-    except: await interaction.followup.send("❌ Error!")
+            await interaction.followup.send(f"✅ Added to Queue: **{data['title']}**")
+            
+        if not vc.is_playing(): 
+            play_next(interaction.guild, interaction.user, interaction.channel)
+    except Exception as e:
+        print(f"Play Error Details: {e}")
+        await interaction.followup.send(f"❌ Could not load song from YouTube. Try again!")
 
 @bot.tree.command(name="help", description="Commands guide")
 async def help_cmd(interaction):
     emb = discord.Embed(title="🎵 JP Music Guide", description="Use `/play` to start. Buttons control everything!", color=0xFFD700)
     await interaction.response.send_message(embed=emb)
 
-# START BOT WITH KEEP-ALIVE
 keep_alive()
 bot.run(os.environ.get("TOKEN"))
