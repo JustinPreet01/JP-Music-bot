@@ -23,7 +23,6 @@ intents.message_content = True
 intents.voice_states = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# Set LOG_CHANNEL_ID here
 LOG_CHANNEL_ID = 1514237335464841313 
 FFMPEG_PATH = shutil.which("ffmpeg") or "ffmpeg"
 server_states = {}
@@ -33,14 +32,13 @@ def get_state(guild_id):
         server_states[guild_id] = {'queue': [], 'loop': False, 'volume': 1.0, 'np_msg': None, 'current_song': None, 'self_disconnect': False}
     return server_states[guild_id]
 
-# Bypass Options
+# 🛡️ Updated Bypassing Options
 YTDL_OPTIONS = {
     'format': 'bestaudio/best',
-    'default_search': 'ytsearch1', # Sirf 1 gaana search karega
+    'default_search': 'ytsearch1',
     'noplaylist': True,
     'quiet': True,
     'no_warnings': True,
-    'extract_flat': 'in_playlist',
     'nocheckcertificate': True,
     'ignoreerrors': True,
     'source_address': '0.0.0.0',
@@ -77,33 +75,28 @@ class MusicControlView(discord.ui.View):
     def __init__(self, guild_id, requester):
         super().__init__(timeout=None)
         self.guild_id, self.requester = guild_id, requester
-
     @discord.ui.button(emoji="⏸️", style=discord.ButtonStyle.secondary)
     async def pause_btn(self, interaction, button):
         vc = interaction.guild.voice_client
         if vc.is_playing(): vc.pause(); button.emoji = "▶️"
         elif vc.is_paused(): vc.resume(); button.emoji = "⏸️"
         await interaction.response.edit_message(view=self)
-
     @discord.ui.button(emoji="⏭️", style=discord.ButtonStyle.primary)
     async def skip_btn(self, interaction, button):
         if interaction.guild.voice_client: interaction.guild.voice_client.stop()
         await interaction.response.send_message("⏭️ Skipped!", ephemeral=True)
-
     @discord.ui.button(emoji="🔁", style=discord.ButtonStyle.secondary)
     async def loop_btn(self, interaction, button):
         state = get_state(self.guild_id)
         state['loop'] = not state['loop']
         button.style = discord.ButtonStyle.success if state['loop'] else discord.ButtonStyle.secondary
         await interaction.response.edit_message(view=self)
-
     @discord.ui.button(emoji="⏹️", style=discord.ButtonStyle.danger)
     async def stop_btn(self, interaction, button):
         state = get_state(self.guild_id)
         state['queue'].clear(); state['self_disconnect'] = True
         if interaction.guild.voice_client: await interaction.guild.voice_client.disconnect()
         await interaction.response.send_message("⏹️ Disconnected.", ephemeral=True)
-
     @discord.ui.button(emoji="🔊", style=discord.ButtonStyle.secondary, row=1)
     async def vol_up(self, interaction, button):
         vc = interaction.guild.voice_client
@@ -117,23 +110,31 @@ def play_next(guild, requester, channel):
     state = get_state(guild.id)
     vc = guild.voice_client
     if not vc: return
-    if state['loop'] and state['current_song']: state['queue'].insert(0, state['current_song'])
-    if not state['queue']: 
+    
+    if state['loop'] and state['current_song']:
+        state['queue'].insert(0, state['current_song'])
+
+    if not state['queue']:
         state['current_song'] = None
         return
-    
+
     song = state['queue'].pop(0)
     state['current_song'] = song
-    
-    # Real URL extraction
+
+    # 🛠️ Re-extracting URL right before playing to avoid expiration/blocks
     try:
+        loop = asyncio.get_event_loop()
+        # Direct extraction for audio URL
         info = ytdl.extract_info(song['webpage_url'], download=False)
         url = info['url']
+        
         source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(url, executable=FFMPEG_PATH, **FFMPEG_OPTIONS), volume=state['volume'])
         vc.play(source, after=lambda e: play_next(guild, requester, channel))
+        
         asyncio.run_coroutine_threadsafe(update_np_panel(guild, requester, channel), bot.loop)
     except Exception as e:
-        print(f"Error in play_next: {e}")
+        print(f"Stream Error: {e}")
+        asyncio.run_coroutine_threadsafe(channel.send(f"❌ YouTube blocked the stream for **{song['title']}**. Skipping..."), bot.loop)
         play_next(guild, requester, channel)
 
 async def update_np_panel(guild, requester, channel):
@@ -158,11 +159,8 @@ async def play(interaction: discord.Interaction, search: str):
     state = get_state(interaction.guild.id)
     
     try:
-        # Search stage
         data = await asyncio.get_event_loop().run_in_executor(None, lambda: ytdl.extract_info(search, download=False))
-        
         if 'entries' in data:
-            # Check if it's a playlist link or keyword search
             if 'playlist' in data.get('webpage_url', ''):
                 for e in data['entries']: state['queue'].append(e)
                 await interaction.followup.send(f"📑 Playlist added!")
@@ -176,10 +174,8 @@ async def play(interaction: discord.Interaction, search: str):
         
         if not vc.is_playing() and not vc.is_paused(): 
             play_next(interaction.guild, interaction.user, interaction.channel)
-            
-    except Exception as e:
-        print(f"Search Error: {e}")
-        await interaction.followup.send("❌ YouTube is blocking this IP. Wait 5 mins or try a link!")
+    except:
+        await interaction.followup.send("❌ YouTube is blocking this search. Try a link!")
 
 keep_alive()
 bot.run(os.environ.get("TOKEN"))
